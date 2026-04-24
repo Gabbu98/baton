@@ -93,7 +93,7 @@ The marker block is replaced on each subsequent launch — existing file content
 
 ### On exit
 After the CLI process ends, baton:
-1. Reads the most recent session JSONL from `~/.claude/projects/<project>/` (Claude) or falls back gracefully (Gemini — no parseable history available yet)
+1. Reads the most recent session JSONL from `~/.claude/projects/<project>/` (Claude) or session JSON from `~/.gemini/tmp/` (Gemini)
 2. Extracts the last 6 meaningful turns (skipping tool calls, internal meta-messages)
 3. Writes them to `~/.config/baton/bridge.md`
 4. Appends a timestamped entry to `~/Documents/Baton_Vault/handoff_log.md`
@@ -166,6 +166,5 @@ baton-rebuild
 
 ## Notes
 
-- **Gemini history**: The Gemini CLI does not currently write parseable chat history to disk. Baton skips extraction after Gemini sessions and leaves `bridge.md` unchanged. Context injected into `GEMINI.md` on launch still works (from a prior Claude session or a manually edited `bridge.md`).
 - **CLAUDE.md scope**: `CLAUDE.md` is read by Claude Code for the current project directory. The injected context is project-scoped, not global.
 - **Private data**: `bridge.md` and `handoff_log.md` contain excerpts of your conversations. They are stored locally only.

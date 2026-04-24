@@ -1,28 +1,28 @@
 <!-- baton:context:start -->
 ## Baton Context Bridge
-_Carried over: 2026-04-23 09:56_
+_Carried over: 2026-04-24 08:36_
 
-[user]: add a README.md with instruction how to set it up on a mac for now with all requirement and add a automated setup script according to my existing config if the user has claude and gemini files in different place see whether its best to move the or trace them and adapt
+[user]: Give me information about how revolut can be better set up briefly
 
-[assistant]: Let me gather all the details about the current setup before writing anything.
+[assistant]: Let me quickly check the existing docs and config to give you relevant advice.
 
-[assistant]: Now I have the full picture. Let me update `main.go` to support env var overrides for config paths, then write both files.
+[assistant]: Here's a concise breakdown of what's missing or could be improved for a solid Revolut setup:
 
-[assistant]: Now write the setup script:
+**Security**
+- `revolut-platform.merchant-api.secret-key: "secretKey"` is a plaintext placeholder — must come from a secrets manager or config server (Vault, GCP Secret Manager) in all non-local profiles.
+- HTTP basic auth is wired (`quarkus.http.auth.basic: true`) but the user credentials block is commented out — webhook endpoint is currently unauthenticated.
+- Revolut webhooks should also be verified using the **HMAC signature** header (`Revolut-Signature`) — no validation exists yet.
 
-[assistant]: Now the README:
+**Config gaps**
+- `revolut-platform.merchant-api.base-url` is hardcoded to sandbox — you need a profile switch (`sandbox` / `prod`) so it doesn't get accidentally deployed to production pointing at the sandbox.
+- No OAuth2 / API key rotation strategy — Revolut uses a long-lived secret key; consider injecting it via env var (`REVOLUT_SECRET_KEY`) rather than config file.
 
-[assistant]: Done. Here's what was added/changed:
+**Missing infrastructure**
+- RabbitMQ channels (exchange, queue names, routing keys) are not declared — the dependency is there but inert.
+- MongoDB is commented out — decide whether to persist order IDs/idempotency keys locally, which Revolut's API strongly encourages to avoid duplicate charges.
 
-**`main.go`** — added four env var overrides at the top (`BATON_CLAUDE_DIR`, `BATON_GEMINI_DIR`, `BATON_BRIDGE_FILE`, `BATON_VAULT_DIR`) so non-standard config paths can be set without modifying source.
+**Idempotency**
+- Revolut's `/api/orders` endpoint requires an `merchant_order_ext_ref` for idempotency. Without persistent storage there's no way to deduplicate retried commands.
 
-**`setup.sh`** — automated macOS setup that:
-1. Checks/installs prerequisites: Homebrew, Go, glow (optional prompt)
-2. Verifies Claude and Gemini CLIs are present (warns with install links if not)
-3. Detects config directories — checks `BATON_*_DIR` env vars first, then the CLI's own env hints (`CLAUDE_CONFIG_DIR`, `GEMINI_HOME`), then defaults (`~/.claude`, `~/.gemini`), then prompts interactively if nothing found
-4. Writes `BATON_*_DIR` exports to `~/.zshrc` only if the path is non-standard — no-op for standard setups
-5. Builds and installs the binary
-6. Adds all aliases idempotently (won't duplicate if run again)
-
-**`README.md`** — covers requirements, quick setup, manual setup, how the bridge works, config env vars, alias reference, and the rationale for tracing vs moving (short answer: moving breaks the CLIs since they hardcode their config dirs).
+The highest-priority items are **secret key handling**, **webhook HMAC validation**, and **profile-based URL switching** — those are the ones that could cause security or prod/sandbox confusion soonest.
 <!-- baton:context:end -->
