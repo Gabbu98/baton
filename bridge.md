@@ -1,6 +1,8 @@
-[user]: tell me smt interesting
+[user]: from the new gemini interaction update the Readme
 
-[assistant]: Since the **baton** project is integrating with Revolut, here's a technical "gotcha": Revolut's API relies heavily on `merchant_order_ext_ref` for idempotency—if you retry a request with the same ID, they won't charge the customer twice. 
+[assistant]: Let me look at the recent changes and existing README to understand what needs updating.
 
-Interestingly, your current setup has MongoDB commented out, meaning you don't yet have a way to persist those IDs locally to prevent duplicate commands if your service restarts.
+[assistant]: Now I have a clear picture. The Gemini fix implemented actual context extraction — previously it was a no-op that just printed a message. The README needs to reflect the correct Gemini session file path and remove any implication that Gemini extraction was unsupported.
+
+[assistant]: README updated — the Gemini session path now accurately reflects the `~/.gemini/tmp/<project>/chats/` lookup with its fallback, matching what `extractGeminiContext` actually does.
 

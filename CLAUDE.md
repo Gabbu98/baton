@@ -1,8 +1,10 @@
 <!-- baton:context:start -->
 ## Baton Context Bridge
-_Carried over: 2026-04-23 09:48_
+_Carried over: 2026-04-24 08:46_
 
 [user]: tell me smt interesting
 
-[assistant]: The Unix timestamp `1111111111` occurred on March 18, 2005 at 01:58:31 UTC. A bunch of developers actually threw parties to celebrate it. The next "repunit" timestamp — `2222222222` — won't happen until November 2040. You've got time to plan.
+[assistant]: Since the **baton** project is integrating with Revolut, here's a technical "gotcha": Revolut's API relies heavily on `merchant_order_ext_ref` for idempotency—if you retry a request with the same ID, they won't charge the customer twice. 
+
+Interestingly, your current setup has MongoDB commented out, meaning you don't yet have a way to persist those IDs locally to prevent duplicate commands if your service restarts.
 <!-- baton:context:end -->

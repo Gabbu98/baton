@@ -49,14 +49,19 @@ type contentBlock struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < 3 {
 		fmt.Println("🪄 Baton Orchestrator\nUsage: baton [binary-name] [args...]")
 		return
 	}
-	runBaton(os.Args[1], os.Args[2:])
+
+	chatName := os.Args[1]
+	targetAI := os.Args[2]
+	extraArgs := os.Args[3:]
+
+	runBaton(chatName, targetAI, extraArgs)
 }
 
-func runBaton(aiCmd string, extraArgs []string) {
+func runBaton(chatName, aiCmd string, extraArgs []string) {
 	cwd, _ := os.Getwd()
 
 	// Inject previous bridge context into the AI's MD file automatically.
@@ -77,12 +82,11 @@ func runBaton(aiCmd string, extraArgs []string) {
 		return
 	}
 
-	extractAndSave(aiCmd, cwd)
+	extractAndSave(chatName, aiCmd, cwd)
 }
 
-func mdFileFor(aiCmd, cwd string) string {
-	name := strings.ToUpper(aiCmd) + ".md"
-	return filepath.Join(cwd, name)
+func mdFileFor(chatName, cwd string) string {
+	return filepath.Join(cwd, chatName+".md")
 }
 
 // writeMDContext upserts the baton-fenced section at the top of the MD file.
@@ -121,7 +125,7 @@ func removeBatonSection(content string) string {
 	return strings.TrimLeft(after, "\n")
 }
 
-func extractAndSave(aiCmd, cwd string) {
+func extractAndSave(chatName, aiCmd, cwd string) {
 	var content string
 
 	switch aiCmd {
@@ -138,15 +142,22 @@ func extractAndSave(aiCmd, cwd string) {
 		return
 	}
 
+	chatFile := chatName + ".md"
+
+	if f, err := os.OpenFile(chatFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		defer f.Close()
+		f.WriteString(fmt.Sprintf("\n## %s [%s]\n%s\n", time.Now().Format(time.RFC3339), aiCmd, content))
+	}
+
 	os.MkdirAll(vaultDir, 0755)
 	os.MkdirAll(filepath.Dir(bridgeFile), 0755)
 
 	os.WriteFile(bridgeFile, []byte(content), 0644)
 
 	vaultPath := filepath.Join(vaultDir, "handoff_log.md")
-	if f, err := os.OpenFile(vaultPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		defer f.Close()
-		f.WriteString(fmt.Sprintf("\n## %s [%s]\n%s\n", time.Now().Format(time.RFC3339), aiCmd, content))
+	if vf, err := os.OpenFile(vaultPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		defer vf.Close()
+		vf.WriteString(fmt.Sprintf("\n## %s [%s: %s]\n%s\n", time.Now().Format(time.RFC3339), chatName, aiCmd, content))
 	}
 
 	fmt.Println("✅ Baton passed! Bridge updated.")

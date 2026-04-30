@@ -93,7 +93,7 @@ The marker block is replaced on each subsequent launch — existing file content
 
 ### On exit
 After the CLI process ends, baton:
-1. Reads the most recent session JSONL from `~/.claude/projects/<project>/` (Claude) or session JSON from `~/.gemini/tmp/` (Gemini)
+1. Reads the most recent session JSONL from `~/.claude/projects/<project>/` (Claude) or the most recently modified session JSON from `~/.gemini/tmp/<project>/chats/` (Gemini, falls back to any session under `~/.gemini/tmp/*/chats/` if the project directory isn't found)
 2. Extracts the last 6 meaningful turns (skipping tool calls, internal meta-messages)
 3. Writes them to `~/.config/baton/bridge.md`
 4. Appends a timestamped entry to `~/Documents/Baton_Vault/handoff_log.md`
