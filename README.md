@@ -1,13 +1,22 @@
 # Baton 🪄
 
-A lightweight context bridge for AI CLI sessions. When you finish a `claude` or `gemini` session, baton extracts the last few exchanges and saves them to `bridge.md`. On your next session it automatically injects that context into `CLAUDE.md` / `GEMINI.md` in your project directory so the AI picks up where you left off — no copy-paste required.
+A lightweight context bridge for AI CLI sessions. Give each conversation a name and baton tracks it across sessions and AI tools. When a session ends, baton extracts the last few exchanges and saves them to a named chat file. On your next launch it automatically injects that context into `CLAUDE.md` / `GEMINI.md` (or `<CHATNAME>.md`) in your project directory — no copy-paste required.
 
 ```
-  ┌─────────┐  exit   ┌────────────┐  next launch  ┌───────────┐
-  │  claude │ ──────► │ bridge.md  │ ────────────►  │ CLAUDE.md │ ◄─ claude reads this
-  └─────────┘         └────────────┘                └───────────┘
-                            │
-                            └──► Documents/Baton_Vault/handoff_log.md  (permanent log)
+  baton myproject claude
+       │
+       ▼
+  ┌─────────────────────────────────────┐
+  │  ~/Baton_Chats/myproject.md         │  ◄─ per-chat history (all sessions)
+  └─────────────────────────────────────┘
+       │ inject on next launch
+       ▼
+  ┌───────────────┐
+  │ MYPROJECT.md  │  ◄─ claude/gemini reads this
+  └───────────────┘
+       │
+       └──► ~/.config/baton/bridge.md           (latest session, always updated)
+       └──► ~/Documents/Baton_Vault/handoff_log.md  (permanent log)
 ```
 
 ## Requirements
@@ -35,6 +44,8 @@ source ~/.zshrc
 
 The script handles everything: builds the binary, installs it, detects config directories, and adds shell aliases.
 
+> **Note:** After setup, update the generated aliases in `~/.zshrc` to match the new two-argument format shown in [Aliases](#aliases-reference) below.
+
 ---
 
 ## Manual Setup
@@ -57,10 +68,17 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```bash
 # ~/.zshrc
+
+# Named chat: chat history keyed by project dir, writes CLAUDE.md / GEMINI.md
+alias claude='baton "$(basename $PWD)" claude'
+alias gemini='baton "$(basename $PWD)" gemini'
+
+# Or fixed chat names that mirror the old single-file behaviour:
+# alias claude='baton claude claude'
+# alias gemini='baton gemini gemini'
+
 alias baton='$HOME/.local/bin/baton'
 alias baton-rebuild='(cd $HOME/.config/baton && go build -o $HOME/.local/bin/baton .) && echo "✅ baton rebuilt"'
-alias claude='baton claude'
-alias gemini='baton gemini'
 alias bridge='glow $HOME/.config/baton/bridge.md'
 ```
 
@@ -68,14 +86,24 @@ Reload: `source ~/.zshrc`
 
 ### 3. Use it
 
-Just type `claude` or `gemini` as you normally would. Baton wraps the CLI transparently.
+```bash
+# Start a session (chat name is "myproject", AI is claude)
+baton myproject claude
+
+# Continue the same chat with a different AI
+baton myproject gemini
+
+# Or just use the aliased form from within your project directory
+claude          # expands to: baton "$(basename $PWD)" claude
+```
 
 ---
 
 ## How It Works
 
 ### On launch
-If `bridge.md` has content from a previous session, baton writes it into `CLAUDE.md` (or `GEMINI.md`) in your current directory inside HTML comment markers:
+
+If `~/Baton_Chats/<chat-name>.md` has content from a previous session, baton writes it into `<CHATNAME>.md` in your current directory inside HTML comment markers:
 
 ```markdown
 <!-- baton:context:start -->
@@ -92,12 +120,14 @@ _Carried over: 2026-04-23 09:48_
 The marker block is replaced on each subsequent launch — existing file content below it is preserved.
 
 ### On exit
+
 After the CLI process ends, baton:
 1. Reads the most recent session JSONL from `~/.claude/projects/<project>/` (Claude) or the most recently modified session JSON from `~/.gemini/tmp/<project>/chats/` (Gemini, falls back to any session under `~/.gemini/tmp/*/chats/` if the project directory isn't found)
 2. Extracts the last 6 meaningful turns (skipping tool calls, internal meta-messages)
-3. Writes them to `~/.config/baton/bridge.md`
-4. Appends a timestamped entry to `~/Documents/Baton_Vault/handoff_log.md`
-5. Fires a macOS notification
+3. Appends a timestamped entry to `~/Baton_Chats/<chat-name>.md`
+4. Writes the same content to `~/.config/baton/bridge.md`
+5. Appends a timestamped entry to `~/Documents/Baton_Vault/handoff_log.md`
+6. Fires a macOS notification
 
 ---
 
@@ -109,8 +139,9 @@ All paths are configurable via environment variables. Only set these if your con
 |----------|---------|---------|
 | `BATON_CLAUDE_DIR` | `~/.claude` | Where Claude Code stores its config and history |
 | `BATON_GEMINI_DIR` | `~/.gemini` | Where Gemini CLI stores its config |
-| `BATON_BRIDGE_FILE` | `~/.config/baton/bridge.md` | The context handoff file |
+| `BATON_BRIDGE_FILE` | `~/.config/baton/bridge.md` | The latest-session context file |
 | `BATON_VAULT_DIR` | `~/Documents/Baton_Vault` | Permanent session log directory |
+| `BATON_CHATS_DIR` | `~/Baton_Chats` | Per-chat session files |
 
 Example for a non-standard Claude config location:
 
@@ -127,11 +158,11 @@ The Claude and Gemini CLIs hardcode their config directories. Moving those direc
 
 ## Aliases Reference
 
-| Alias | Command | Description |
-|-------|---------|-------------|
-| `claude` | `baton claude` | Launch Claude Code with context bridge |
-| `gemini` | `baton gemini` | Launch Gemini CLI with context bridge |
-| `bridge` | `glow ~/.config/baton/bridge.md` | Preview current context |
+| Alias | Expands to | Description |
+|-------|-----------|-------------|
+| `claude` | `baton "$(basename $PWD)" claude` | Launch Claude with per-project context |
+| `gemini` | `baton "$(basename $PWD)" gemini` | Launch Gemini with per-project context |
+| `bridge` | `glow ~/.config/baton/bridge.md` | Preview latest session context |
 | `baton-rebuild` | `go build ...` | Rebuild binary after source changes |
 
 You can pass any flags through: `claude --resume`, `gemini --model gemini-2.5-pro`, etc.
@@ -156,7 +187,11 @@ baton-rebuild
 ├── go.mod
 ├── setup.sh         — automated setup
 ├── README.md
-└── bridge.md        — current context (auto-managed)
+└── bridge.md        — latest session context (auto-managed)
+
+~/Baton_Chats/
+├── myproject.md     — named chat history (all sessions, all AI tools)
+└── ...
 
 ~/Documents/Baton_Vault/
 └── handoff_log.md   — permanent timestamped log of all sessions
@@ -166,5 +201,7 @@ baton-rebuild
 
 ## Notes
 
-- **CLAUDE.md scope**: `CLAUDE.md` is read by Claude Code for the current project directory. The injected context is project-scoped, not global.
-- **Private data**: `bridge.md` and `handoff_log.md` contain excerpts of your conversations. They are stored locally only.
+- **Chat naming**: The chat name is used both to key the session file (`~/Baton_Chats/<name>.md`) and to determine the injected MD filename (`<NAME>.md`) in your project directory. Using the project directory name (e.g. `$(basename $PWD)`) gives you one chat file per project.
+- **Cross-AI continuity**: Use the same chat name with different AI tools (`baton myproject claude`, then `baton myproject gemini`) to pass context between them.
+- **CLAUDE.md scope**: `CLAUDE.md` (or `<CHATNAME>.md`) is read by Claude Code for the current project directory. The injected context is project-scoped, not global.
+- **Private data**: Chat files, `bridge.md`, and `handoff_log.md` contain excerpts of your conversations. They are stored locally only.
