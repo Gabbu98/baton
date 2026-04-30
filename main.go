@@ -27,6 +27,7 @@ var (
 	geminiDir  = envOr("BATON_GEMINI_DIR", filepath.Join(home, ".gemini"))
 	bridgeFile = envOr("BATON_BRIDGE_FILE", filepath.Join(home, ".config", "baton", "bridge.md"))
 	vaultDir   = envOr("BATON_VAULT_DIR", filepath.Join(home, "Documents", "Baton_Vault"))
+	chatsDir   = envOr("BATON_CHATS_DIR", filepath.Join(home, "Baton_Chats"))
 )
 
 const (
@@ -63,9 +64,12 @@ func main() {
 
 func runBaton(chatName, aiCmd string, extraArgs []string) {
 	cwd, _ := os.Getwd()
+	os.MkdirAll(chatsDir, 0755)
+
+	chatFile := filepath.Join(chatsDir, chatName+".md")
 
 	// Inject previous bridge context into the AI's MD file automatically.
-	if data, err := os.ReadFile(bridgeFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+	if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
 		mdFile := mdFileFor(aiCmd, cwd)
 		if err := writeMDContext(mdFile, string(data)); err == nil {
 			fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
@@ -86,7 +90,7 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 }
 
 func mdFileFor(chatName, cwd string) string {
-	return filepath.Join(cwd, chatName+".md")
+	return filepath.Join(cwd, strings.ToUpper(chatName)+".md")
 }
 
 // writeMDContext upserts the baton-fenced section at the top of the MD file.
@@ -142,16 +146,20 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 		return
 	}
 
-	chatFile := chatName + ".md"
+	chatFile := filepath.Join(chatsDir, chatName+".md")
 
 	if f, err := os.OpenFile(chatFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 		defer f.Close()
-		f.WriteString(fmt.Sprintf("\n## %s [%s]\n%s\n", time.Now().Format(time.RFC3339), aiCmd, content))
+
+		info, _ := f.Stat()
+		if info.Size() == 0 {
+			f.WriteString(fmt.Sprintf("# Chat: %s\nCreated: %s\n\n", chatName, time.Now().Format("2006-01-02")))
+		}
+
+		f.WriteString(fmt.Sprintf("\n--- \n### Session: %s [%s]\n%s", time.Now().Format("15:04:05"), aiCmd, content))
 	}
 
-	os.MkdirAll(vaultDir, 0755)
 	os.MkdirAll(filepath.Dir(bridgeFile), 0755)
-
 	os.WriteFile(bridgeFile, []byte(content), 0644)
 
 	vaultPath := filepath.Join(vaultDir, "handoff_log.md")
