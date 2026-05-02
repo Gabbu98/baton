@@ -28,6 +28,10 @@ type ClaudeStrategy struct {
 	directory string
 }
 
+func NewClaudeStrategy(dir string) *ClaudeStrategy {
+	return &ClaudeStrategy{directory: dir}
+}
+
 func (claude *ClaudeStrategy) ExtractContext(common_working_directory string) string {
 	projectKey := claude.cwdToProjectKey(common_working_directory)
 	projectDir := filepath.Join(claude.directory, "projects", projectKey)
@@ -43,7 +47,7 @@ func (claude *ClaudeStrategy) ExtractContext(common_working_directory string) st
 	}
 
 	utils.SortByModTime(sessions)
-	return parseJson(sessions[0])
+	return claude.parseJson(sessions[0])
 }
 
 func (claude *ClaudeStrategy) cwdToProjectKey(common_working_directory string) string {
@@ -55,7 +59,7 @@ func (claude *ClaudeStrategy) cwdToProjectKey(common_working_directory string) s
 	}, common_working_directory)
 }
 
-func parseJson(path string) string {
+func (claude *ClaudeStrategy) parseJson(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
 		return ""

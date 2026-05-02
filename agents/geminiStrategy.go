@@ -13,6 +13,10 @@ type GeminiStrategy struct {
 	directory string
 }
 
+func NewGeminiStrategy(dir string) *GeminiStrategy {
+	return &GeminiStrategy{directory: dir}
+}
+
 // finds most recently modified session JSON
 func (gemini *GeminiStrategy) ExtractContext(common_working_directory string) string {
 	projectName := filepath.Base(common_working_directory)
@@ -36,7 +40,7 @@ func (gemini *GeminiStrategy) ExtractContext(common_working_directory string) st
 		}
 
 		utils.SortByModTime(sessionFiles)
-		return parseJson(sessionFiles[0])
+		return gemini.parseJson(sessionFiles[0])
 	}
 
 	for _, e := range entries {
@@ -50,7 +54,7 @@ func (gemini *GeminiStrategy) ExtractContext(common_working_directory string) st
 	}
 
 	utils.SortByModTime(sessionFiles)
-	return parseJson(sessionFiles[0])
+	return gemini.parseJson(sessionFiles[0])
 }
 
 func (gemini *GeminiStrategy) parseJson(path string) string {
