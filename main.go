@@ -62,6 +62,7 @@ func main() {
 	runBaton(chatName, targetAI, extraArgs)
 }
 
+// common
 func runBaton(chatName, aiCmd string, extraArgs []string) {
 	cwd, _ := os.Getwd()
 	os.MkdirAll(chatsDir, 0755)
@@ -89,10 +90,12 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 	extractAndSave(chatName, aiCmd, cwd)
 }
 
+// common
 func mdFileFor(chatName, cwd string) string {
 	return filepath.Join(cwd, strings.ToUpper(chatName)+".md")
 }
 
+// common
 // writeMDContext upserts the baton-fenced section at the top of the MD file.
 func writeMDContext(mdFile, bridgeContent string) error {
 	section := fmt.Sprintf("%s\n## Baton Context Bridge\n_Carried over: %s_\n\n%s\n%s\n",
@@ -116,6 +119,7 @@ func writeMDContext(mdFile, bridgeContent string) error {
 	return os.WriteFile(mdFile, []byte(final), 0644)
 }
 
+// common
 func removeBatonSection(content string) string {
 	start := strings.Index(content, batonStart)
 	if start == -1 {
@@ -129,6 +133,7 @@ func removeBatonSection(content string) string {
 	return strings.TrimLeft(after, "\n")
 }
 
+// strategy class
 func extractAndSave(chatName, aiCmd, cwd string) {
 	var content string
 
@@ -172,6 +177,7 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 	exec.Command("osascript", "-e", `display notification "Context saved." with title "Baton 🪄"`).Run()
 }
 
+// strategy class
 // extractClaudeContext finds the most recently modified session JSONL for the given cwd.
 func extractClaudeContext(cwd string) string {
 	projectKey := cwdToProjectKey(cwd)
@@ -190,6 +196,7 @@ func extractClaudeContext(cwd string) string {
 	return parseClaudeJSONL(sessions[0])
 }
 
+// claude's
 // cwdToProjectKey converts a filesystem path to Claude's project directory naming.
 // Claude replaces every non-alphanumeric character (/, .) with "-".
 func cwdToProjectKey(cwd string) string {
@@ -201,6 +208,7 @@ func cwdToProjectKey(cwd string) string {
 	}, cwd)
 }
 
+// strategy class
 func parseClaudeJSONL(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -261,6 +269,7 @@ func parseClaudeJSONL(path string) string {
 	return sb.String()
 }
 
+// strategy
 // claudeContentText extracts human-readable text from Claude's content field,
 // which may be a plain string or an array of typed content blocks.
 func claudeContentText(raw json.RawMessage) string {
@@ -289,6 +298,7 @@ func claudeContentText(raw json.RawMessage) string {
 	return ""
 }
 
+// strategy
 // extractGenericContext is a fallback for unknown AI tools.
 func extractGenericContext(aiCmd string) string {
 	root := filepath.Join(home, "."+aiCmd)
@@ -319,6 +329,7 @@ func sortByModTime(files []string) {
 	})
 }
 
+// baton
 func parseGenericChatFile(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -396,6 +407,7 @@ func genericText(text string, content interface{}, parts []struct {
 	return ""
 }
 
+// deprecated
 func copyToClipboard(content string) {
 	cmd := exec.Command("pbcopy")
 	in, _ := cmd.StdinPipe()
@@ -407,6 +419,7 @@ func copyToClipboard(content string) {
 	fmt.Println("📋 Context copied to clipboard.")
 }
 
+// strategy
 // extractGeminiContext finds the most recently modified session JSON for the given project.
 func extractGeminiContext(cwd string) string {
 	projectName := filepath.Base(cwd)
@@ -444,6 +457,7 @@ func extractGeminiContext(cwd string) string {
 	return parseGeminiJSON(sessionFiles[0])
 }
 
+// strategy
 func parseGeminiJSON(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
