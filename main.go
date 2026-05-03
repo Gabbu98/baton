@@ -22,11 +22,12 @@ func envOr(key, fallback string) string {
 var home = os.Getenv("HOME")
 
 var (
-	claudeDir  = envOr("BATON_CLAUDE_DIR", filepath.Join(home, ".claude"))
-	geminiDir  = envOr("BATON_GEMINI_DIR", filepath.Join(home, ".gemini"))
-	bridgeFile = envOr("BATON_BRIDGE_FILE", filepath.Join(home, ".config", "baton", "bridge.md"))
-	vaultDir   = envOr("BATON_VAULT_DIR", filepath.Join(home, "Documents", "Baton_Vault"))
-	chatsDir   = envOr("BATON_CHATS_DIR", filepath.Join(home, "Baton_Chats"))
+	claudeDir   = envOr("BATON_CLAUDE_DIR", filepath.Join(home, ".claude"))
+	geminiDir   = envOr("BATON_GEMINI_DIR", filepath.Join(home, ".gemini"))
+	opencodeDir = envOr("BATON_OPENCODE_DIR", filepath.Join(home, ".local", "share", "opencode"))
+	bridgeFile  = envOr("BATON_BRIDGE_FILE", filepath.Join(home, ".config", "baton", "bridge.md"))
+	vaultDir    = envOr("BATON_VAULT_DIR", filepath.Join(home, "Documents", "Baton_Vault"))
+	chatsDir    = envOr("BATON_CHATS_DIR", filepath.Join(home, "Baton_Chats"))
 )
 
 const (
@@ -143,8 +144,11 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 	case "gemini":
 		gemini := agents.NewGeminiStrategy(geminiDir)
 		content = gemini.ExtractContext(cwd)
+	case "opencode":
+		opencode := agents.NewOpenCodeStrategy(opencodeDir)
+		content = opencode.ExtractContext(cwd)
 	default:
-		generic := agents.NewClaudeStrategy(home)
+		generic := agents.NewGenericStrategy(home)
 		content = generic.ExtractContext(aiCmd)
 	}
 

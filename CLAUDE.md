@@ -1,6 +1,6 @@
 <!-- baton:context:start -->
 ## Baton Context Bridge
-_Carried over: 2026-05-03 18:53_
+_Carried over: 2026-05-03 19:08_
 
 # Chat: golang
 Created: 2026-05-02
@@ -78,4 +78,21 @@ Do you want me to recap a specific planned next step, or were you asking because
 [assistant]: Found it at `/Users/gabrielc/Baton_Chats/golang.md`.
 
 [assistant]: This is the same content that was already embedded in your `CLAUDE.md` — it's a chat log from a session on 2026-05-02 where you asked about the strategy pattern refactor plan. It's stored at `/Users/gabrielc/Baton_Chats/golang.md` and baton is carrying it forward into new sessions via `CLAUDE.md`.
+
+
+--- 
+### Session: 18:56:48 [claude]
+[user]: i want you to include mean how one can remove baton
+
+[assistant]: Let me look at the current project structure first.
+
+[assistant]: Now I have a clear picture of what setup.sh installs. I'll add an "Uninstalling" section to the README.
+
+[assistant]: Added an "Uninstalling" section to the README before the Notes section. It covers:
+
+1. Removing the binary from `~/.local/bin`
+2. Removing the source/config directory at `~/.config/baton`
+3. Optionally removing chat history and the vault
+4. Manually cleaning the shell config block that `setup.sh` wrote
+5. Reloading the shell — with a note that the real `claude`/`gemini` CLIs will be restored once the aliases are gone
 <!-- baton:context:end -->
