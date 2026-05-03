@@ -1,14 +1,13 @@
 package main
 
 import (
-	"bufio"
+	"baton/agents"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -139,11 +138,14 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 
 	switch aiCmd {
 	case "claude":
-		content = extractClaudeContext(cwd)
+		claude := agents.NewClaudeStrategy(claudeDir)
+		content = claude.ExtractContext(cwd)
 	case "gemini":
-		content = extractGeminiContext(cwd)
+		gemini := agents.NewGeminiStrategy(geminiDir)
+		content = gemini.ExtractContext(cwd)
 	default:
-		content = extractGenericContext(aiCmd)
+		generic := agents.NewClaudeStrategy(home)
+		content = generic.ExtractContext(aiCmd)
 	}
 
 	if strings.TrimSpace(content) == "" {
@@ -177,236 +179,6 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 	exec.Command("osascript", "-e", `display notification "Context saved." with title "Baton 🪄"`).Run()
 }
 
-// strategy class
-// extractClaudeContext finds the most recently modified session JSONL for the given cwd.
-func extractClaudeContext(cwd string) string {
-	projectKey := cwdToProjectKey(cwd)
-	projectDir := filepath.Join(claudeDir, "projects", projectKey)
-
-	sessions := jsonlFiles(projectDir)
-	if len(sessions) == 0 {
-		// Fallback: most recent session across all projects
-		sessions = jsonlFiles(filepath.Join(claudeDir, "projects"))
-	}
-	if len(sessions) == 0 {
-		return ""
-	}
-
-	sortByModTime(sessions)
-	return parseClaudeJSONL(sessions[0])
-}
-
-// claude's
-// cwdToProjectKey converts a filesystem path to Claude's project directory naming.
-// Claude replaces every non-alphanumeric character (/, .) with "-".
-func cwdToProjectKey(cwd string) string {
-	return strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			return r
-		}
-		return '-'
-	}, cwd)
-}
-
-// strategy class
-func parseClaudeJSONL(path string) string {
-	file, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer file.Close()
-
-	type msg struct{ role, text string }
-	var messages []msg
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-
-		var e claudeEntry
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			continue
-		}
-		if e.Type != "user" && e.Type != "assistant" {
-			continue
-		}
-
-		role := e.Message.Role
-		if role == "" {
-			role = e.Type
-		}
-
-		text := claudeContentText(e.Message.Content)
-		if text == "" {
-			continue
-		}
-		// Skip internal Claude CLI meta-messages
-		if strings.Contains(text, "<local-command-caveat>") ||
-			strings.Contains(text, "<command-name>") ||
-			strings.Contains(text, "<local-command-stdout>") ||
-			strings.Contains(text, "<local-command-stderr>") {
-			continue
-		}
-
-		messages = append(messages, msg{role, text})
-	}
-
-	// Keep last 6 meaningful turns
-	start := len(messages) - 6
-	if start < 0 {
-		start = 0
-	}
-
-	var sb strings.Builder
-	for _, m := range messages[start:] {
-		sb.WriteString(fmt.Sprintf("[%s]: %s\n\n", m.role, m.text))
-	}
-	return sb.String()
-}
-
-// strategy
-// claudeContentText extracts human-readable text from Claude's content field,
-// which may be a plain string or an array of typed content blocks.
-func claudeContentText(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-
-	// Plain string content
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return strings.TrimSpace(s)
-	}
-
-	// Array of content blocks — only extract type:"text" blocks
-	var blocks []contentBlock
-	if err := json.Unmarshal(raw, &blocks); err == nil {
-		var parts []string
-		for _, b := range blocks {
-			if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
-				parts = append(parts, strings.TrimSpace(b.Text))
-			}
-		}
-		return strings.Join(parts, "\n")
-	}
-
-	return ""
-}
-
-// strategy
-// extractGenericContext is a fallback for unknown AI tools.
-func extractGenericContext(aiCmd string) string {
-	root := filepath.Join(home, "."+aiCmd)
-	files := jsonlFiles(root)
-	if len(files) == 0 {
-		return ""
-	}
-	sortByModTime(files)
-	return parseGenericChatFile(files[0])
-}
-
-func jsonlFiles(root string) []string {
-	var files []string
-	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(path, ".jsonl") {
-			files = append(files, path)
-		}
-		return nil
-	})
-	return files
-}
-
-func sortByModTime(files []string) {
-	sort.Slice(files, func(i, j int) bool {
-		fi, _ := os.Stat(files[i])
-		fj, _ := os.Stat(files[j])
-		return fi.ModTime().After(fj.ModTime())
-	})
-}
-
-// baton
-func parseGenericChatFile(path string) string {
-	file, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer file.Close()
-
-	type entry struct {
-		Role    string      `json:"role"`
-		Content interface{} `json:"content"`
-		Text    string      `json:"text"`
-		Parts   []struct {
-			Text string `json:"text"`
-		} `json:"parts"`
-	}
-
-	var result strings.Builder
-
-	if strings.HasSuffix(path, ".jsonl") {
-		var lines []string
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			lines = append(lines, scanner.Text())
-		}
-		start := len(lines) - 4
-		if start < 0 {
-			start = 0
-		}
-		for _, line := range lines[start:] {
-			var e entry
-			if json.Unmarshal([]byte(line), &e) == nil {
-				if txt := genericText(e.Text, e.Content, e.Parts); txt != "" {
-					result.WriteString(fmt.Sprintf("[%s]: %s\n\n", e.Role, txt))
-				}
-			}
-		}
-	} else {
-		data, _ := io.ReadAll(file)
-		var raw map[string]interface{}
-		json.Unmarshal(data, &raw)
-		msgs, _ := raw["messages"].([]interface{})
-		if len(msgs) == 0 {
-			msgs, _ = raw["history"].([]interface{})
-		}
-		start := len(msgs) - 3
-		if start < 0 {
-			start = 0
-		}
-		for _, m := range msgs[start:] {
-			b, _ := json.Marshal(m)
-			var e entry
-			json.Unmarshal(b, &e)
-			if txt := genericText(e.Text, e.Content, e.Parts); txt != "" {
-				result.WriteString(fmt.Sprintf("[%s]: %s\n\n", e.Role, txt))
-			}
-		}
-	}
-
-	return result.String()
-}
-
-func genericText(text string, content interface{}, parts []struct {
-	Text string `json:"text"`
-}) string {
-	if text != "" {
-		return text
-	}
-	if s, ok := content.(string); ok && s != "" {
-		return s
-	}
-	if len(parts) > 0 && parts[0].Text != "" {
-		return parts[0].Text
-	}
-	return ""
-}
-
 // deprecated
 func copyToClipboard(content string) {
 	cmd := exec.Command("pbcopy")
@@ -417,100 +189,4 @@ func copyToClipboard(content string) {
 	}()
 	cmd.Run()
 	fmt.Println("📋 Context copied to clipboard.")
-}
-
-// strategy
-// extractGeminiContext finds the most recently modified session JSON for the given project.
-func extractGeminiContext(cwd string) string {
-	projectName := filepath.Base(cwd)
-	projectDir := filepath.Join(geminiDir, "tmp", projectName, "chats")
-
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		// Fallback: search for any session in ~/.gemini/tmp/*/chats/
-		var sessionFiles []string
-		filepath.WalkDir(filepath.Join(geminiDir, "tmp"), func(path string, d os.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".json") && strings.Contains(path, "/chats/") {
-				sessionFiles = append(sessionFiles, path)
-			}
-			return nil
-		})
-		if len(sessionFiles) == 0 {
-			return ""
-		}
-		sortByModTime(sessionFiles)
-		return parseGeminiJSON(sessionFiles[0])
-	}
-
-	var sessionFiles []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
-			sessionFiles = append(sessionFiles, filepath.Join(projectDir, e.Name()))
-		}
-	}
-
-	if len(sessionFiles) == 0 {
-		return ""
-	}
-
-	sortByModTime(sessionFiles)
-	return parseGeminiJSON(sessionFiles[0])
-}
-
-// strategy
-func parseGeminiJSON(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-
-	var session struct {
-		Messages []struct {
-			Type    string      `json:"type"`
-			Content interface{} `json:"content"`
-		} `json:"messages"`
-	}
-
-	if err := json.Unmarshal(data, &session); err != nil {
-		return ""
-	}
-
-	type msg struct{ role, text string }
-	var messages []msg
-
-	for _, m := range session.Messages {
-		text := ""
-		switch v := m.Content.(type) {
-		case string:
-			text = v
-		case []interface{}:
-			for _, item := range v {
-				if obj, ok := item.(map[string]interface{}); ok {
-					if t, ok := obj["text"].(string); ok {
-						text += t
-					}
-				}
-			}
-		}
-
-		if text != "" {
-			role := m.Type
-			if role == "gemini" {
-				role = "assistant"
-			}
-			messages = append(messages, msg{role, text})
-		}
-	}
-
-	// Keep last 6 meaningful turns
-	start := len(messages) - 6
-	if start < 0 {
-		start = 0
-	}
-
-	var sb strings.Builder
-	for _, m := range messages[start:] {
-		sb.WriteString(fmt.Sprintf("[%s]: %s\n\n", m.role, m.text))
-	}
-	return sb.String()
 }

@@ -199,6 +199,33 @@ baton-rebuild
 
 ---
 
+## Uninstalling
+
+```bash
+# 1. Remove the binary
+rm -f ~/.local/bin/baton
+
+# 2. Remove the source / config directory
+rm -rf ~/.config/baton
+
+# 3. Remove chat history and vault (optional — these are your saved context files)
+rm -rf ~/Baton_Chats
+rm -rf ~/Documents/Baton_Vault
+
+# 4. Remove the aliases and env vars baton added to your shell config
+# Open ~/.zshrc (or ~/.bash_profile) and delete the block between:
+#   # Baton — AI context bridge
+# and the last alias line (bridge=...).
+# Also remove any BATON_*_DIR exports if they were added.
+
+# 5. Reload your shell
+source ~/.zshrc
+```
+
+After step 5 the `claude` and `gemini` commands will resolve to the real CLIs again (if they were on your PATH before baton aliased them).
+
+---
+
 ## Notes
 
 - **Chat naming**: The chat name is used both to key the session file (`~/Baton_Chats/<name>.md`) and to determine the injected MD filename (`<NAME>.md`) in your project directory. Using the project directory name (e.g. `$(basename $PWD)`) gives you one chat file per project.
