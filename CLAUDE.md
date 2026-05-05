@@ -1,6 +1,6 @@
 <!-- baton:context:start -->
 ## Baton Context Bridge
-_Carried over: 2026-05-03 19:08_
+_Carried over: 2026-05-05 08:41_
 
 # Chat: golang
 Created: 2026-05-02
@@ -95,4 +95,41 @@ Do you want me to recap a specific planned next step, or were you asking because
 3. Optionally removing chat history and the vault
 4. Manually cleaning the shell config block that `setup.sh` wrote
 5. Reloading the shell — with a note that the real `claude`/`gemini` CLIs will be restored once the aliases are gone
+
+
+--- 
+### Session: 19:21:39 [claude]
+[assistant]: Clean build. Here's what was added:
+
+**`agents/opencodeStrategy.go`** — new strategy that:
+1. Looks for the SQLite DB at `~/.local/share/opencode/db` (or any `db` file under that dir, most-recently-modified first)
+2. Shells out to `sqlite3 -json` to query the last 12 messages
+3. Parses the `parts` JSON array, extracting `type:"text"` blocks
+4. Returns the last 6 turns formatted as `[role]: text`
+
+**`main.go`** — two changes:
+- Added `opencodeDir` env var (`BATON_OPENCODE_DIR`, defaults to `~/.local/share/opencode`)
+- Added `case "opencode":` in the dispatch switch
+- Fixed the pre-existing bug in the `default:` case (was incorrectly using `NewClaudeStrategy` instead of `NewGenericStrategy`)
+
+Usage once opencode is installed:
+```
+baton mychat opencode [args...]
+```
+
+[user]: update the readme accordingly
+
+[assistant]: Now update the "On exit" section and the configuration table:
+
+[assistant]: Now add a note about the `sqlite3` requirement for OpenCode:
+
+[assistant]: Let me do a final check to make sure everything looks coherent:
+
+[assistant]: README updated with OpenCode across five sections:
+
+- **Requirements** — OpenCode added as optional dependency; noted `sqlite3` ships with macOS
+- **Shell aliases** — `opencode='baton "$(basename $PWD)" opencode'` added to both alias blocks
+- **How It Works / On exit** — expanded the source list to show Claude/Gemini/OpenCode with their respective paths
+- **Configuration** — `BATON_OPENCODE_DIR` row added (defaults to `~/.local/share/opencode`)
+- **Aliases Reference** — OpenCode row added to the table
 <!-- baton:context:end -->

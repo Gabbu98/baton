@@ -72,7 +72,7 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 	// Inject previous bridge context into the AI's MD file automatically.
 	if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
 		mdFile := mdFileFor(aiCmd, cwd)
-		if err := writeMDContext(mdFile, string(data)); err == nil {
+		if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
 			fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
 		}
 	}
@@ -95,13 +95,29 @@ func mdFileFor(chatName, cwd string) string {
 	return filepath.Join(cwd, strings.ToUpper(chatName)+".md")
 }
 
+// contextPreamble returns AI-specific instructions to frame the injected history.
+func contextPreamble(aiCmd string) string {
+	switch aiCmd {
+	case "opencode":
+		return "> **IMPORTANT:** The section below is prior conversation history carried over by Baton.\n" +
+			"> Treat it as established context. Do not search the web for information already present here.\n" +
+			"> Reference it directly when answering questions in this session.\n"
+	default:
+		return ""
+	}
+}
+
 // common
 // writeMDContext upserts the baton-fenced section at the top of the MD file.
-func writeMDContext(mdFile, bridgeContent string) error {
+func writeMDContext(mdFile, bridgeContent, preamble string) error {
+	body := strings.TrimSpace(bridgeContent)
+	if preamble != "" {
+		body = preamble + "\n" + body
+	}
 	section := fmt.Sprintf("%s\n## Baton Context Bridge\n_Carried over: %s_\n\n%s\n%s\n",
 		batonStart,
 		time.Now().Format("2006-01-02 15:04"),
-		strings.TrimSpace(bridgeContent),
+		body,
 		batonEnd)
 
 	existing := ""

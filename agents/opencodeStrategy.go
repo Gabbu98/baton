@@ -10,9 +10,10 @@ import (
 	"strings"
 )
 
-// OpenCode stores sessions in a SQLite DB at ~/.local/share/opencode/db.
-// Schema: message(id, session_id, role, parts JSON, time INTEGER)
-// parts: [{"type":"text","text":"..."}]
+// OpenCode stores sessions in a SQLite DB at ~/.local/share/opencode/opencode.db.
+// Schema:
+//   message(id, session_id, time_created, time_updated, data JSON{role, time, agent, model})
+//   part(id, message_id, session_id, time_created, time_updated, data JSON{type, text})
 type OpenCodeStrategy struct {
 	directory string
 }
@@ -30,14 +31,14 @@ func (o *OpenCodeStrategy) ExtractContext(cwd string) string {
 }
 
 func (o *OpenCodeStrategy) findDB() string {
-	main := filepath.Join(o.directory, "db")
+	main := filepath.Join(o.directory, "opencode.db")
 	if _, err := os.Stat(main); err == nil {
 		return main
 	}
 
 	var dbs []string
 	filepath.WalkDir(o.directory, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && filepath.Base(path) == "db" {
+		if err == nil && !d.IsDir() && strings.HasSuffix(path, ".db") {
 			dbs = append(dbs, path)
 		}
 		return nil
@@ -50,16 +51,21 @@ func (o *OpenCodeStrategy) findDB() string {
 }
 
 func (o *OpenCodeStrategy) queryMessages(dbPath string) string {
-	// Fetch last 12 rows in reverse-chron, then we reverse for display.
-	query := `SELECT role, parts FROM message ORDER BY time DESC LIMIT 12;`
+	query := `
+		SELECT m.data AS msg_data, p.data AS part_data
+		FROM message m
+		JOIN part p ON p.message_id = m.id
+		ORDER BY p.time_created DESC
+		LIMIT 12;
+	`
 	out, err := exec.Command("sqlite3", "-json", dbPath, query).Output()
 	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
 		return ""
 	}
 
 	type row struct {
-		Role  string `json:"role"`
-		Parts string `json:"parts"`
+		MsgData string `json:"msg_data"`
+		PartData string `json:"part_data"`
 	}
 	var rows []row
 	if err := json.Unmarshal(out, &rows); err != nil {
@@ -71,22 +77,29 @@ func (o *OpenCodeStrategy) queryMessages(dbPath string) string {
 		rows[i], rows[j] = rows[j], rows[i]
 	}
 
-	type part struct {
+	type messageJSON struct {
+		Role string `json:"role"`
+	}
+
+	type partJSON struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
 
 	var sb strings.Builder
 	for _, r := range rows {
-		var parts []part
-		if err := json.Unmarshal([]byte(r.Parts), &parts); err != nil {
+		var msg messageJSON
+		if err := json.Unmarshal([]byte(r.MsgData), &msg); err != nil {
 			continue
 		}
-		for _, p := range parts {
-			if p.Type == "text" && strings.TrimSpace(p.Text) != "" {
-				sb.WriteString(fmt.Sprintf("[%s]: %s\n\n", r.Role, strings.TrimSpace(p.Text)))
-				break
-			}
+
+		var p partJSON
+		if err := json.Unmarshal([]byte(r.PartData), &p); err != nil {
+			continue
+		}
+
+		if p.Type == "text" && strings.TrimSpace(p.Text) != "" {
+			sb.WriteString(fmt.Sprintf("[%s]: %s\n\n", msg.Role, strings.TrimSpace(p.Text)))
 		}
 	}
 	return sb.String()
