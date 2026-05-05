@@ -28,9 +28,10 @@ A lightweight context bridge for AI CLI sessions. Give each conversation a name 
 | Go | 1.21+ | `brew install go` |
 | [Claude Code CLI](https://claude.ai/code) | any | see link |
 | [Gemini CLI](https://ai.google.dev/gemini-api/docs/gemini-cli) | any | `npm install -g @google/gemini-cli` |
+| [OpenCode](https://opencode.ai) *(optional)* | any | `npm install -g opencode-ai` |
 | [glow](https://github.com/charmbracelet/glow) *(optional)* | any | `brew install glow` |
 
-`glow` is only needed for the `bridge` alias that renders the context file as formatted Markdown.
+`glow` is only needed for the `bridge` alias that renders the context file as formatted Markdown. The OpenCode integration requires `sqlite3`, which ships with macOS.
 
 ---
 
@@ -69,13 +70,15 @@ export PATH="$HOME/.local/bin:$PATH"
 ```bash
 # ~/.zshrc
 
-# Named chat: chat history keyed by project dir, writes CLAUDE.md / GEMINI.md
+# Named chat: chat history keyed by project dir, writes CLAUDE.md / GEMINI.md / OPENCODE.md
 alias claude='baton "$(basename $PWD)" claude'
 alias gemini='baton "$(basename $PWD)" gemini'
+alias opencode='baton "$(basename $PWD)" opencode'
 
 # Or fixed chat names that mirror the old single-file behaviour:
 # alias claude='baton claude claude'
 # alias gemini='baton gemini gemini'
+# alias opencode='baton opencode opencode'
 
 alias baton='$HOME/.local/bin/baton'
 alias baton-rebuild='(cd $HOME/.config/baton && go build -o $HOME/.local/bin/baton .) && echo "✅ baton rebuilt"'
@@ -95,6 +98,10 @@ baton myproject gemini
 
 # Or just use the aliased form from within your project directory
 claude          # expands to: baton "$(basename $PWD)" claude
+
+# Or with opencode
+baton myproject opencode
+opencode        # expands to: baton "$(basename $PWD)" opencode
 ```
 
 ---
@@ -122,7 +129,10 @@ The marker block is replaced on each subsequent launch — existing file content
 ### On exit
 
 After the CLI process ends, baton:
-1. Reads the most recent session JSONL from `~/.claude/projects/<project>/` (Claude) or the most recently modified session JSON from `~/.gemini/tmp/<project>/chats/` (Gemini, falls back to any session under `~/.gemini/tmp/*/chats/` if the project directory isn't found)
+1. Reads session history from the appropriate source:
+   - **Claude** — most recent JSONL from `~/.claude/projects/<project>/`
+   - **Gemini** — most recently modified JSON from `~/.gemini/tmp/<project>/chats/` (falls back to any session under `~/.gemini/tmp/*/chats/`)
+   - **OpenCode** — queries the SQLite DB at `~/.local/share/opencode/db` via the `sqlite3` CLI
 2. Extracts the last 6 meaningful turns (skipping tool calls, internal meta-messages)
 3. Appends a timestamped entry to `~/Baton_Chats/<chat-name>.md`
 4. Writes the same content to `~/.config/baton/bridge.md`
@@ -139,6 +149,7 @@ All paths are configurable via environment variables. Only set these if your con
 |----------|---------|---------|
 | `BATON_CLAUDE_DIR` | `~/.claude` | Where Claude Code stores its config and history |
 | `BATON_GEMINI_DIR` | `~/.gemini` | Where Gemini CLI stores its config |
+| `BATON_OPENCODE_DIR` | `~/.local/share/opencode` | Where OpenCode stores its SQLite session DB |
 | `BATON_BRIDGE_FILE` | `~/.config/baton/bridge.md` | The latest-session context file |
 | `BATON_VAULT_DIR` | `~/Documents/Baton_Vault` | Permanent session log directory |
 | `BATON_CHATS_DIR` | `~/Baton_Chats` | Per-chat session files |
@@ -162,6 +173,7 @@ The Claude and Gemini CLIs hardcode their config directories. Moving those direc
 |-------|-----------|-------------|
 | `claude` | `baton "$(basename $PWD)" claude` | Launch Claude with per-project context |
 | `gemini` | `baton "$(basename $PWD)" gemini` | Launch Gemini with per-project context |
+| `opencode` | `baton "$(basename $PWD)" opencode` | Launch OpenCode with per-project context |
 | `bridge` | `glow ~/.config/baton/bridge.md` | Preview latest session context |
 | `baton-rebuild` | `go build ...` | Rebuild binary after source changes |
 
@@ -196,6 +208,33 @@ baton-rebuild
 ~/Documents/Baton_Vault/
 └── handoff_log.md   — permanent timestamped log of all sessions
 ```
+
+---
+
+## Uninstalling
+
+```bash
+# 1. Remove the binary
+rm -f ~/.local/bin/baton
+
+# 2. Remove the source / config directory
+rm -rf ~/.config/baton
+
+# 3. Remove chat history and vault (optional — these are your saved context files)
+rm -rf ~/Baton_Chats
+rm -rf ~/Documents/Baton_Vault
+
+# 4. Remove the aliases and env vars baton added to your shell config
+# Open ~/.zshrc (or ~/.bash_profile) and delete the block between:
+#   # Baton — AI context bridge
+# and the last alias line (bridge=...).
+# Also remove any BATON_*_DIR exports if they were added.
+
+# 5. Reload your shell
+source ~/.zshrc
+```
+
+After step 5 the `claude` and `gemini` commands will resolve to the real CLIs again (if they were on your PATH before baton aliased them).
 
 ---
 
