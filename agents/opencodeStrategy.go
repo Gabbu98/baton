@@ -12,8 +12,9 @@ import (
 
 // OpenCode stores sessions in a SQLite DB at ~/.local/share/opencode/opencode.db.
 // Schema:
-//   message(id, session_id, time_created, time_updated, data JSON{role, time, agent, model})
-//   part(id, message_id, session_id, time_created, time_updated, data JSON{type, text})
+//
+//	message(id, session_id, time_created, time_updated, data JSON{role, time, agent, model})
+//	part(id, message_id, session_id, time_created, time_updated, data JSON{type, text})
 type OpenCodeStrategy struct {
 	directory string
 }
@@ -22,22 +23,26 @@ func NewOpenCodeStrategy(dir string) *OpenCodeStrategy {
 	return &OpenCodeStrategy{directory: dir}
 }
 
-func (o *OpenCodeStrategy) ExtractContext(cwd string) string {
-	dbPath := o.findDB()
+func (opencode *OpenCodeStrategy) LatestSessionId(current_working_directory string) string {
+	return ""
+}
+
+func (opencode *OpenCodeStrategy) ExtractContext(current_working_directory string) string {
+	dbPath := opencode.findDB()
 	if dbPath == "" {
 		return ""
 	}
-	return o.queryMessages(dbPath)
+	return opencode.queryMessages(dbPath)
 }
 
-func (o *OpenCodeStrategy) findDB() string {
-	main := filepath.Join(o.directory, "opencode.db")
+func (opencode *OpenCodeStrategy) findDB() string {
+	main := filepath.Join(opencode.directory, "opencode.db")
 	if _, err := os.Stat(main); err == nil {
 		return main
 	}
 
 	var dbs []string
-	filepath.WalkDir(o.directory, func(path string, d os.DirEntry, err error) error {
+	filepath.WalkDir(opencode.directory, func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && strings.HasSuffix(path, ".db") {
 			dbs = append(dbs, path)
 		}
@@ -50,7 +55,7 @@ func (o *OpenCodeStrategy) findDB() string {
 	return dbs[0]
 }
 
-func (o *OpenCodeStrategy) queryMessages(dbPath string) string {
+func (opencode *OpenCodeStrategy) queryMessages(dbPath string) string {
 	query := `
 		SELECT m.data AS msg_data, p.data AS part_data
 		FROM message m
@@ -64,7 +69,7 @@ func (o *OpenCodeStrategy) queryMessages(dbPath string) string {
 	}
 
 	type row struct {
-		MsgData string `json:"msg_data"`
+		MsgData  string `json:"msg_data"`
 		PartData string `json:"part_data"`
 	}
 	var rows []row
@@ -72,7 +77,7 @@ func (o *OpenCodeStrategy) queryMessages(dbPath string) string {
 		return ""
 	}
 
-	// Reverse to chronological order
+	// Reverse topencode chronological order
 	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 		rows[i], rows[j] = rows[j], rows[i]
 	}
