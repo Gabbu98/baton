@@ -32,6 +32,23 @@ func NewClaudeStrategy(dir string) *ClaudeStrategy {
 	return &ClaudeStrategy{directory: dir}
 }
 
+func (claude *ClaudeStrategy) LatestSessionID(cwd string) string {
+	projectKey := claude.cwdToProjectKey(cwd)
+	projectDir := filepath.Join(claude.directory, "projects", projectKey)
+
+	sessions := utils.JsonFiles(projectDir)
+	if len(sessions) == 0 {
+		sessions = utils.JsonFiles(filepath.Join(claude.directory, "projects"))
+	}
+	if len(sessions) == 0 {
+		return ""
+	}
+
+	utils.SortByModTime(sessions)
+	base := filepath.Base(sessions[0])
+	return strings.TrimSuffix(base, ".jsonl")
+}
+
 func (claude *ClaudeStrategy) ExtractContext(common_working_directory string) string {
 	projectKey := claude.cwdToProjectKey(common_working_directory)
 	projectDir := filepath.Join(claude.directory, "projects", projectKey)

@@ -28,12 +28,57 @@ var (
 	bridgeFile  = envOr("BATON_BRIDGE_FILE", filepath.Join(home, ".config", "baton", "bridge.md"))
 	vaultDir    = envOr("BATON_VAULT_DIR", filepath.Join(home, "Documents", "Baton_Vault"))
 	chatsDir    = envOr("BATON_CHATS_DIR", filepath.Join(home, "Baton_Chats"))
+	stateDir    = envOr("BATON_STATE_DIR", filepath.Join(home, ".config", "baton", "state"))
 )
 
 const (
 	batonStart = "<!-- baton:context:start -->"
 	batonEnd   = "<!-- baton:context:end -->"
 )
+
+type resumeState struct {
+	ResumeID string `json:"resumeId"`
+	SavedAt  string `json:"savedAt"`
+}
+
+func stateFilePath(chatName, tool string) string {
+	return filepath.Join(stateDir, chatName+"_"+tool+".json")
+}
+
+func loadResumeID(chatName, tool string) string {
+	data, err := os.ReadFile(stateFilePath(chatName, tool))
+	if err != nil {
+		return ""
+	}
+	var s resumeState
+	if err := json.Unmarshal(data, &s); err != nil {
+		return ""
+	}
+	return s.ResumeID
+}
+
+func saveResumeID(chatName, tool, id string) {
+	os.MkdirAll(stateDir, 0755)
+	s := resumeState{ResumeID: id, SavedAt: time.Now().Format(time.RFC3339)}
+	data, _ := json.Marshal(s)
+	os.WriteFile(stateFilePath(chatName, tool), data, 0644)
+}
+
+func clearResumeID(chatName, tool string) {
+	os.Remove(stateFilePath(chatName, tool))
+}
+
+func sessionExists(claudeDir, sessionID, cwd string) bool {
+	projectKey := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '-'
+	}, cwd)
+	path := filepath.Join(claudeDir, "projects", projectKey, sessionID+".jsonl")
+	_, err := os.Stat(path)
+	return err == nil
+}
 
 // Claude JSONL entry — message.content is a raw JSON field (string or []ContentBlock)
 type claudeEntry struct {
@@ -69,16 +114,37 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 
 	chatFile := filepath.Join(chatsDir, chatName+".md")
 
-	// Inject previous bridge context into the AI's MD file automatically.
-	if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-		mdFile := mdFileFor(aiCmd, cwd)
-		if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
-			fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
+	var args []string
+	if aiCmd == "claude" {
+		id := loadResumeID(chatName, "claude")
+		if id != "" && !sessionExists(claudeDir, id, cwd) {
+			fmt.Printf("⚠️  Baton: Stale session ID %s..., falling back to context injection.\n", id[:8])
+			clearResumeID(chatName, "claude")
+			id = ""
 		}
+		if id != "" {
+			fmt.Printf("🔁 Baton: Resuming Claude session %s...\n", id[:8])
+			args = append([]string{"claude", "--resume", id}, extraArgs...)
+		} else {
+			if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+				mdFile := mdFileFor(aiCmd, cwd)
+				if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
+					fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
+				}
+			}
+			args = append([]string{"claude"}, extraArgs...)
+		}
+	} else {
+		if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+			mdFile := mdFileFor(aiCmd, cwd)
+			if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
+				fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
+			}
+		}
+		args = append([]string{aiCmd}, extraArgs...)
 	}
 
 	fmt.Printf("🚀 Baton: Launching %s...\n", aiCmd)
-	args := append([]string{aiCmd}, extraArgs...)
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
@@ -157,6 +223,9 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 	case "claude":
 		claude := agents.NewClaudeStrategy(claudeDir)
 		content = claude.ExtractContext(cwd)
+		if id := claude.LatestSessionID(cwd); id != "" {
+			saveResumeID(chatName, "claude", id)
+		}
 	case "gemini":
 		gemini := agents.NewGeminiStrategy(geminiDir)
 		content = gemini.ExtractContext(cwd)
