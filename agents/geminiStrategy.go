@@ -18,38 +18,43 @@ func NewGeminiStrategy(dir string) *GeminiStrategy {
 }
 
 func (gemini *GeminiStrategy) LatestSessionID(current_working_directory string) string {
-	return ""
+	path := gemini.getLatestSessionFile(current_working_directory)
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var session struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(data, &session); err != nil {
+		return ""
+	}
+	return session.SessionID
 }
 
-// finds most recently modified session JSON
-func (gemini *GeminiStrategy) ExtractContext(current_working_directly string) string {
-	projectName := filepath.Base(current_working_directly)
+func (gemini *GeminiStrategy) getLatestSessionFile(current_working_directory string) string {
+	projectName := filepath.Base(current_working_directory)
 	projectDir := filepath.Join(gemini.directory, "tmp", projectName, "chats")
 
-	entries, err := os.ReadDir(projectDir)
 	var sessionFiles []string
+	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		// Fallback: search for any session in ~/.gemini/tmp/*/chats/
-
-		var geminiTempPath string = filepath.Join(gemini.directory, "tmp")
+		geminiTempPath := filepath.Join(gemini.directory, "tmp")
 		filepath.WalkDir(geminiTempPath, func(path string, d os.DirEntry, err error) error {
 			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".json") && strings.Contains(path, "/chats/") {
 				sessionFiles = append(sessionFiles, path)
 			}
 			return nil
 		})
-
-		if len(sessionFiles) == 0 {
-			return ""
-		}
-
-		utils.SortByModTime(sessionFiles)
-		return gemini.parseJson(sessionFiles[0])
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
-			sessionFiles = append(sessionFiles, filepath.Join(projectDir, e.Name()))
+	} else {
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+				sessionFiles = append(sessionFiles, filepath.Join(projectDir, e.Name()))
+			}
 		}
 	}
 
@@ -58,7 +63,16 @@ func (gemini *GeminiStrategy) ExtractContext(current_working_directly string) st
 	}
 
 	utils.SortByModTime(sessionFiles)
-	return gemini.parseJson(sessionFiles[0])
+	return sessionFiles[0]
+}
+
+// finds most recently modified session JSON
+func (gemini *GeminiStrategy) ExtractContext(current_working_directory string) string {
+	path := gemini.getLatestSessionFile(current_working_directory)
+	if path == "" {
+		return ""
+	}
+	return gemini.parseJson(path)
 }
 
 func (gemini *GeminiStrategy) parseJson(path string) string {

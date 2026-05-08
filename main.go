@@ -70,26 +70,35 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 		return cmd.Run()
 	}
 
-	if aiCmd == "claude" {
-		if id := utils.LoadResumeId(chatsDir, chatName); id != "" {
-			fmt.Printf("🔁 Baton: Resuming Claude session %s...\n", id[:8])
-			if err := launch(append([]string{"claude", "--resume", id}, extraArgs...)); err != nil {
+	// Try to resume if supported
+	if id := utils.LoadResumeId(chatsDir, chatName, aiCmd); id != "" {
+		var resumeArgs []string
+		switch aiCmd {
+		case "claude", "gemini":
+			resumeArgs = []string{aiCmd, "--resume", id}
+		case "opencode":
+			resumeArgs = []string{"opencode", "--session", id}
+		}
+
+		if len(resumeArgs) > 0 {
+			fmt.Printf("🔁 Baton: Resuming %s session %s...\n", aiCmd, id[:8])
+			if err := launch(append(resumeArgs, extraArgs...)); err != nil {
 				var exitErr *exec.ExitError
 				if !errors.As(err, &exitErr) {
-					fmt.Printf("❌ Error: Could not find 'claude'. Ensure it is in your PATH.\n")
+					fmt.Printf("❌ Error: Could not find '%s'. Ensure it is in your PATH.\n", aiCmd)
 					return
 				}
 				// Session gone — clear sidecar and fall back to MD injection
-				fmt.Println("⚠️  Baton: Session not found, falling back to context injection...")
-				utils.ClearResumeId(chatsDir, chatName)
+				fmt.Printf("⚠️  Baton: %s session not found, falling back to context injection...\n", aiCmd)
+				utils.ClearResumeId(chatsDir, chatName, aiCmd)
 				injectMDContext()
-				if err := launch(append([]string{"claude"}, extraArgs...)); err != nil {
+				if err := launch(append([]string{aiCmd}, extraArgs...)); err != nil {
 					return
 				}
 			}
 		} else {
 			injectMDContext()
-			if err := launch(append([]string{"claude"}, extraArgs...)); err != nil {
+			if err := launch(append([]string{aiCmd}, extraArgs...)); err != nil {
 				return
 			}
 		}
@@ -161,19 +170,21 @@ func removeBatonSection(content string) string {
 
 func extractAndSave(chatName, aiCmd, cwd string) {
 	var content string
-	var claudeSessionID string
+	var sessionID string
 
 	switch aiCmd {
 	case "claude":
 		claude := agents.NewClaudeStrategy(claudeDir)
 		content = claude.ExtractContext(cwd)
-		claudeSessionID = claude.LatestSessionID(cwd)
+		sessionID = claude.LatestSessionID(cwd)
 	case "gemini":
 		gemini := agents.NewGeminiStrategy(geminiDir)
 		content = gemini.ExtractContext(cwd)
+		sessionID = gemini.LatestSessionID(cwd)
 	case "opencode":
 		opencode := agents.NewOpenCodeStrategy(opencodeDir)
 		content = opencode.ExtractContext(cwd)
+		sessionID = opencode.LatestSessionID(cwd)
 	default:
 		generic := agents.NewGenericStrategy(home)
 		content = generic.ExtractContext(aiCmd)
@@ -197,8 +208,8 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 		f.WriteString(fmt.Sprintf("\n--- \n### Session: %s [%s]\n%s", time.Now().Format("15:04:05"), aiCmd, content))
 	}
 
-	if claudeSessionID != "" {
-		utils.SaveResumeId(chatsDir, chatName, claudeSessionID)
+	if sessionID != "" {
+		utils.SaveResumeId(chatsDir, chatName, aiCmd, sessionID)
 	}
 
 	os.MkdirAll(filepath.Dir(bridgeFile), 0755)

@@ -23,8 +23,23 @@ func NewOpenCodeStrategy(dir string) *OpenCodeStrategy {
 	return &OpenCodeStrategy{directory: dir}
 }
 
-func (opencode *OpenCodeStrategy) LatestSessionId(current_working_directory string) string {
-	return ""
+func (opencode *OpenCodeStrategy) LatestSessionID(current_working_directory string) string {
+	dbPath := opencode.findDB()
+	if dbPath == "" {
+		return ""
+	}
+	query := "SELECT session_id FROM message ORDER BY time_created DESC LIMIT 1;"
+	out, err := exec.Command("sqlite3", "-json", dbPath, query).Output()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		return ""
+	}
+	var rows []struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(out, &rows); err != nil || len(rows) == 0 {
+		return ""
+	}
+	return rows[0].SessionID
 }
 
 func (opencode *OpenCodeStrategy) ExtractContext(current_working_directory string) string {
