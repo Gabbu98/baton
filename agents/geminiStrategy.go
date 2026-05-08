@@ -17,9 +17,13 @@ func NewGeminiStrategy(dir string) *GeminiStrategy {
 	return &GeminiStrategy{directory: dir}
 }
 
+func (gemini *GeminiStrategy) LatestSessionID(current_working_directory string) string {
+	return ""
+}
+
 // finds most recently modified session JSON
-func (gemini *GeminiStrategy) ExtractContext(common_working_directory string) string {
-	projectName := filepath.Base(common_working_directory)
+func (gemini *GeminiStrategy) ExtractContext(current_working_directly string) string {
+	projectName := filepath.Base(current_working_directly)
 	projectDir := filepath.Join(gemini.directory, "tmp", projectName, "chats")
 
 	entries, err := os.ReadDir(projectDir)
