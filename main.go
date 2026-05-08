@@ -2,10 +2,9 @@ package main
 
 import (
 	"baton/agents"
-	"encoding/json"
+	"baton/utils"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,35 +35,6 @@ const (
 	batonEnd   = "<!-- baton:context:end -->"
 )
 
-type sessionMeta struct {
-	ResumeID string `json:"resumeId"`
-}
-
-func sidecarPath(chatName string) string {
-	return filepath.Join(chatsDir, chatName+".json")
-}
-
-func loadResumeID(chatName string) string {
-	data, err := os.ReadFile(sidecarPath(chatName))
-	if err != nil {
-		return ""
-	}
-	var m sessionMeta
-	if err := json.Unmarshal(data, &m); err != nil {
-		return ""
-	}
-	return m.ResumeID
-}
-
-func saveResumeID(chatName, id string) {
-	data, _ := json.Marshal(sessionMeta{ResumeID: id})
-	os.WriteFile(sidecarPath(chatName), data, 0644)
-}
-
-func clearResumeID(chatName string) {
-	os.Remove(sidecarPath(chatName))
-}
-
 func main() {
 	if len(os.Args) < 3 {
 		fmt.Println("🪄 Baton Orchestrator\nUsage: baton [binary-name] [args...]")
@@ -86,7 +56,7 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 
 	injectMDContext := func() {
 		if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-			mdFile := mdFileFor(aiCmd, cwd)
+			mdFile := utils.MdFileFor(aiCmd, cwd)
 			if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
 				fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
 			}
@@ -101,7 +71,7 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 	}
 
 	if aiCmd == "claude" {
-		if id := loadResumeID(chatName); id != "" {
+		if id := utils.LoadResumeId(chatsDir, chatName); id != "" {
 			fmt.Printf("🔁 Baton: Resuming Claude session %s...\n", id[:8])
 			if err := launch(append([]string{"claude", "--resume", id}, extraArgs...)); err != nil {
 				var exitErr *exec.ExitError
@@ -111,7 +81,7 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 				}
 				// Session gone — clear sidecar and fall back to MD injection
 				fmt.Println("⚠️  Baton: Session not found, falling back to context injection...")
-				clearResumeID(chatName)
+				utils.ClearResumeId(chatsDir, chatName)
 				injectMDContext()
 				if err := launch(append([]string{"claude"}, extraArgs...)); err != nil {
 					return
@@ -135,10 +105,6 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 	}
 
 	extractAndSave(chatName, aiCmd, cwd)
-}
-
-func mdFileFor(chatName, cwd string) string {
-	return filepath.Join(cwd, strings.ToUpper(chatName)+".md")
 }
 
 // contextPreamble returns AI-specific instructions to frame the injected history.
@@ -232,7 +198,7 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 	}
 
 	if claudeSessionID != "" {
-		saveResumeID(chatName, claudeSessionID)
+		utils.SaveResumeId(chatsDir, chatName, claudeSessionID)
 	}
 
 	os.MkdirAll(filepath.Dir(bridgeFile), 0755)
@@ -246,16 +212,4 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 
 	fmt.Println("✅ Baton passed! Bridge updated.")
 	exec.Command("osascript", "-e", `display notification "Context saved." with title "Baton 🪄"`).Run()
-}
-
-// deprecated
-func copyToClipboard(content string) {
-	cmd := exec.Command("pbcopy")
-	in, _ := cmd.StdinPipe()
-	go func() {
-		defer in.Close()
-		io.WriteString(in, content)
-	}()
-	cmd.Run()
-	fmt.Println("📋 Context copied to clipboard.")
 }
