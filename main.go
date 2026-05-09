@@ -30,6 +30,13 @@ var (
 	chatsDir    = envOr("BATON_CHATS_DIR", filepath.Join(home, "Baton_Chats"))
 )
 
+func launchAI(args []string) error {
+	fmt.Printf("🚀 Baton: Launching %s...\n", args[0])
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
 const (
 	batonStart = "<!-- baton:context:start -->"
 	batonEnd   = "<!-- baton:context:end -->"
@@ -48,30 +55,9 @@ func main() {
 	runBaton(chatName, targetAI, extraArgs)
 }
 
-func runBaton(chatName, aiCmd string, extraArgs []string) {
-	cwd, _ := os.Getwd()
-	os.MkdirAll(chatsDir, 0755)
-
-	chatFile := filepath.Join(chatsDir, chatName+".md")
-
-	injectMDContext := func() {
-		if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-			mdFile := utils.MdFileFor(aiCmd, cwd)
-			if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
-				fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
-			}
-		}
-	}
-
-	launch := func(args []string) error {
-		fmt.Printf("🚀 Baton: Launching %s...\n", aiCmd)
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-		return cmd.Run()
-	}
-
-	// Try to resume if supported
-	if id := utils.LoadResumeId(chatsDir, chatName, aiCmd); id != "" {
+func tryResume(chatName, aiCmd string, extraArgs []string) (bool, error) {
+	id := utils.LoadResumeId(chatsDir, chatName, aiCmd)
+	if id != "" {
 		var resumeArgs []string
 		switch aiCmd {
 		case "claude", "gemini":
@@ -82,32 +68,44 @@ func runBaton(chatName, aiCmd string, extraArgs []string) {
 
 		if len(resumeArgs) > 0 {
 			fmt.Printf("🔁 Baton: Resuming %s session %s...\n", aiCmd, id[:8])
-			if err := launch(append(resumeArgs, extraArgs...)); err != nil {
+			if err := launchAI(append(resumeArgs, extraArgs...)); err != nil {
 				var exitErr *exec.ExitError
 				if !errors.As(err, &exitErr) {
-					fmt.Printf("❌ Error: Could not find '%s'. Ensure it is in your PATH.\n", aiCmd)
-					return
+					return false, fmt.Errorf("binary not found: %s", aiCmd)
 				}
-				// Session gone — clear sidecar and fall back to MD injection
-				fmt.Printf("⚠️  Baton: %s session not found, falling back to context injection...\n", aiCmd)
+				// Session is stale - clear and signal caller to fallback
 				utils.ClearResumeId(chatsDir, chatName, aiCmd)
-				injectMDContext()
-				if err := launch(append([]string{aiCmd}, extraArgs...)); err != nil {
-					return
-				}
+				fmt.Printf("⚠️  Baton: %s session not found, falling back...\n", aiCmd)
+				return false, nil
 			}
-		} else {
-			injectMDContext()
-			if err := launch(append([]string{aiCmd}, extraArgs...)); err != nil {
-				return
-			}
+			return true, nil
 		}
-	} else {
-		injectMDContext()
-		if err := launch(append([]string{aiCmd}, extraArgs...)); err != nil {
+	}
+	return false, nil
+}
+
+func injectMDContext(chatFile, aiCmd, cwd string) {
+	if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		mdFile := utils.MdFileFor(aiCmd, cwd)
+		if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
+			fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
+		}
+	}
+}
+
+func runBaton(chatName, aiCmd string, extraArgs []string) {
+	cwd, _ := os.Getwd()
+	os.MkdirAll(chatsDir, 0755)
+
+	chatFile := filepath.Join(chatsDir, chatName+".md")
+
+	wasResumed, err := tryResume(chatName, aiCmd, extraArgs)
+	if !wasResumed || err != nil {
+		injectMDContext(chatFile, aiCmd, cwd)
+		if err := launchAI(append([]string{aiCmd}, extraArgs...)); err != nil {
 			var exitErr *exec.ExitError
 			if !errors.As(err, &exitErr) {
-				fmt.Printf("❌ Error: Could not find '%s'. Ensure it is in your PATH.\n", aiCmd)
+				fmt.Printf("❌ %v\n", err)
 			}
 			return
 		}
