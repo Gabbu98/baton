@@ -19,6 +19,10 @@ func NewGenericStrategy(dir string) *GenericStrategy {
 	return &GenericStrategy{directory: dir}
 }
 
+func (generic *GenericStrategy) LatestSessionID(current_working_directory string) string {
+	return ""
+}
+
 func (g *GenericStrategy) ExtractContext(current_working_directory string) string {
 	root := filepath.Join(g.directory, "."+current_working_directory)
 	files := utils.JsonFiles(root)

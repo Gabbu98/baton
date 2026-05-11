@@ -110,7 +110,14 @@ opencode        # expands to: baton "$(basename $PWD)" opencode
 
 ### On launch
 
-If `~/Baton_Chats/<chat-name>.md` has content from a previous session, baton writes it into `<CHATNAME>.md` in your current directory inside HTML comment markers:
+Baton first checks `~/Baton_Chats/<chat-name>.json` for a saved session ID from a prior run. If one exists, it attempts a native resume:
+
+- **Claude / Gemini** — passes `--resume <id>` to the CLI
+- **OpenCode** — passes `--session <id>` to the CLI
+
+If the resume succeeds, the AI picks up exactly where it left off — no context injection needed. If the session is no longer available (e.g. history cleared), baton automatically falls back to context injection and clears the stale ID.
+
+When there is no saved session ID, baton injects the previous conversation from `~/Baton_Chats/<chat-name>.md` into `<CHATNAME>.md` in your current directory inside HTML comment markers:
 
 ```markdown
 <!-- baton:context:start -->
@@ -135,9 +142,10 @@ After the CLI process ends, baton:
    - **OpenCode** — queries the SQLite DB at `~/.local/share/opencode/db` via the `sqlite3` CLI
 2. Extracts the last 6 meaningful turns (skipping tool calls, internal meta-messages)
 3. Appends a timestamped entry to `~/Baton_Chats/<chat-name>.md`
-4. Writes the same content to `~/.config/baton/bridge.md`
-5. Appends a timestamped entry to `~/Documents/Baton_Vault/handoff_log.md`
-6. Fires a macOS notification
+4. Saves the session ID to `~/Baton_Chats/<chat-name>.json` (used for native resume on next launch)
+5. Writes the same content to `~/.config/baton/bridge.md`
+6. Appends a timestamped entry to `~/Documents/Baton_Vault/handoff_log.md`
+7. Fires a macOS notification
 
 ---
 
@@ -177,7 +185,7 @@ The Claude and Gemini CLIs hardcode their config directories. Moving those direc
 | `bridge` | `glow ~/.config/baton/bridge.md` | Preview latest session context |
 | `baton-rebuild` | `go build ...` | Rebuild binary after source changes |
 
-You can pass any flags through: `claude --resume`, `gemini --model gemini-2.5-pro`, etc.
+You can pass any extra flags through: `gemini --model gemini-2.5-pro`, etc. Session resumption (`--resume` / `--session`) is handled automatically by baton — no need to pass it manually.
 
 ---
 
@@ -203,6 +211,7 @@ baton-rebuild
 
 ~/Baton_Chats/
 ├── myproject.md     — named chat history (all sessions, all AI tools)
+├── myproject.json   — session IDs for native resume (auto-managed)
 └── ...
 
 ~/Documents/Baton_Vault/

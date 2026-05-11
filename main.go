@@ -2,9 +2,9 @@ package main
 
 import (
 	"baton/agents"
-	"encoding/json"
+	"baton/utils"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,24 +30,17 @@ var (
 	chatsDir    = envOr("BATON_CHATS_DIR", filepath.Join(home, "Baton_Chats"))
 )
 
+func launchAI(args []string) error {
+	fmt.Printf("🚀 Baton: Launching %s...\n", args[0])
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
 const (
 	batonStart = "<!-- baton:context:start -->"
 	batonEnd   = "<!-- baton:context:end -->"
 )
-
-// Claude JSONL entry — message.content is a raw JSON field (string or []ContentBlock)
-type claudeEntry struct {
-	Type    string `json:"type"`
-	Message struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
-	} `json:"message"`
-}
-
-type contentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
 
 func main() {
 	if len(os.Args) < 3 {
@@ -62,37 +55,63 @@ func main() {
 	runBaton(chatName, targetAI, extraArgs)
 }
 
-// common
+func tryResume(chatName, aiCmd string, extraArgs []string) (bool, error) {
+	id := utils.LoadResumeId(chatsDir, chatName, aiCmd)
+	if id != "" {
+		var resumeArgs []string
+		switch aiCmd {
+		case "claude", "gemini":
+			resumeArgs = []string{aiCmd, "--resume", id}
+		case "opencode":
+			resumeArgs = []string{"opencode", "--session", id}
+		}
+
+		if len(resumeArgs) > 0 {
+			fmt.Printf("🔁 Baton: Resuming %s session %s...\n", aiCmd, id[:8])
+			if err := launchAI(append(resumeArgs, extraArgs...)); err != nil {
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) {
+					return false, fmt.Errorf("binary not found: %s", aiCmd)
+				}
+				// Session is stale - clear and signal caller to fallback
+				utils.ClearResumeId(chatsDir, chatName, aiCmd)
+				fmt.Printf("⚠️  Baton: %s session not found, falling back...\n", aiCmd)
+				return false, nil
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func injectMDContext(chatFile, aiCmd, cwd string) {
+	if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		mdFile := utils.MdFileFor(aiCmd, cwd)
+		if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
+			fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
+		}
+	}
+}
+
 func runBaton(chatName, aiCmd string, extraArgs []string) {
 	cwd, _ := os.Getwd()
 	os.MkdirAll(chatsDir, 0755)
 
 	chatFile := filepath.Join(chatsDir, chatName+".md")
 
-	// Inject previous bridge context into the AI's MD file automatically.
-	if data, err := os.ReadFile(chatFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-		mdFile := mdFileFor(aiCmd, cwd)
-		if err := writeMDContext(mdFile, string(data), contextPreamble(aiCmd)); err == nil {
-			fmt.Printf("📝 Baton: Context injected into %s\n", filepath.Base(mdFile))
+	wasResumed, err := tryResume(chatName, aiCmd, extraArgs)
+	if !wasResumed || err != nil {
+		injectMDContext(chatFile, aiCmd, cwd)
+		if err := launchAI(append([]string{aiCmd}, extraArgs...)); err != nil {
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				fmt.Printf("❌ %v\n", err)
+			}
+			return
 		}
 	}
 
-	fmt.Printf("🚀 Baton: Launching %s...\n", aiCmd)
-	args := append([]string{aiCmd}, extraArgs...)
-	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("❌ Error: Could not start '%s'. Ensure it is in your PATH.\n", aiCmd)
-		return
-	}
-
 	extractAndSave(chatName, aiCmd, cwd)
-}
-
-// common
-func mdFileFor(chatName, cwd string) string {
-	return filepath.Join(cwd, strings.ToUpper(chatName)+".md")
 }
 
 // contextPreamble returns AI-specific instructions to frame the injected history.
@@ -107,7 +126,6 @@ func contextPreamble(aiCmd string) string {
 	}
 }
 
-// common
 // writeMDContext upserts the baton-fenced section at the top of the MD file.
 func writeMDContext(mdFile, bridgeContent, preamble string) error {
 	body := strings.TrimSpace(bridgeContent)
@@ -135,7 +153,6 @@ func writeMDContext(mdFile, bridgeContent, preamble string) error {
 	return os.WriteFile(mdFile, []byte(final), 0644)
 }
 
-// common
 func removeBatonSection(content string) string {
 	start := strings.Index(content, batonStart)
 	if start == -1 {
@@ -149,20 +166,23 @@ func removeBatonSection(content string) string {
 	return strings.TrimLeft(after, "\n")
 }
 
-// strategy class
 func extractAndSave(chatName, aiCmd, cwd string) {
 	var content string
+	var sessionID string
 
 	switch aiCmd {
 	case "claude":
 		claude := agents.NewClaudeStrategy(claudeDir)
 		content = claude.ExtractContext(cwd)
+		sessionID = claude.LatestSessionID(cwd)
 	case "gemini":
 		gemini := agents.NewGeminiStrategy(geminiDir)
 		content = gemini.ExtractContext(cwd)
+		sessionID = gemini.LatestSessionID(cwd)
 	case "opencode":
 		opencode := agents.NewOpenCodeStrategy(opencodeDir)
 		content = opencode.ExtractContext(cwd)
+		sessionID = opencode.LatestSessionID(cwd)
 	default:
 		generic := agents.NewGenericStrategy(home)
 		content = generic.ExtractContext(aiCmd)
@@ -186,6 +206,10 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 		f.WriteString(fmt.Sprintf("\n--- \n### Session: %s [%s]\n%s", time.Now().Format("15:04:05"), aiCmd, content))
 	}
 
+	if sessionID != "" {
+		utils.SaveResumeId(chatsDir, chatName, aiCmd, sessionID)
+	}
+
 	os.MkdirAll(filepath.Dir(bridgeFile), 0755)
 	os.WriteFile(bridgeFile, []byte(content), 0644)
 
@@ -197,16 +221,4 @@ func extractAndSave(chatName, aiCmd, cwd string) {
 
 	fmt.Println("✅ Baton passed! Bridge updated.")
 	exec.Command("osascript", "-e", `display notification "Context saved." with title "Baton 🪄"`).Run()
-}
-
-// deprecated
-func copyToClipboard(content string) {
-	cmd := exec.Command("pbcopy")
-	in, _ := cmd.StdinPipe()
-	go func() {
-		defer in.Close()
-		io.WriteString(in, content)
-	}()
-	cmd.Run()
-	fmt.Println("📋 Context copied to clipboard.")
 }

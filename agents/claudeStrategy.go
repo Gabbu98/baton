@@ -32,8 +32,25 @@ func NewClaudeStrategy(dir string) *ClaudeStrategy {
 	return &ClaudeStrategy{directory: dir}
 }
 
-func (claude *ClaudeStrategy) ExtractContext(common_working_directory string) string {
-	projectKey := claude.cwdToProjectKey(common_working_directory)
+func (claude *ClaudeStrategy) LatestSessionID(current_working_directory string) string {
+	projectKey := claude.cwdToProjectKey(current_working_directory)
+	projectDir := filepath.Join(claude.directory, "projects", projectKey)
+
+	sessions := utils.JsonFiles(projectDir)
+	if len(sessions) == 0 {
+		sessions = utils.JsonFiles(filepath.Join(claude.directory, "projects"))
+	}
+	if len(sessions) == 0 {
+		return ""
+	}
+
+	utils.SortByModTime(sessions)
+	base := filepath.Base(sessions[0])
+	return strings.TrimSuffix(base, ".jsonl")
+}
+
+func (claude *ClaudeStrategy) ExtractContext(current_working_directory string) string {
+	projectKey := claude.cwdToProjectKey(current_working_directory)
 	projectDir := filepath.Join(claude.directory, "projects", projectKey)
 
 	sessions := utils.JsonFiles(projectDir)
@@ -50,13 +67,13 @@ func (claude *ClaudeStrategy) ExtractContext(common_working_directory string) st
 	return claude.parseJson(sessions[0])
 }
 
-func (claude *ClaudeStrategy) cwdToProjectKey(common_working_directory string) string {
+func (claude *ClaudeStrategy) cwdToProjectKey(current_working_directory string) string {
 	return strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
 			return r
 		}
 		return '-'
-	}, common_working_directory)
+	}, current_working_directory)
 }
 
 func (claude *ClaudeStrategy) parseJson(path string) string {
